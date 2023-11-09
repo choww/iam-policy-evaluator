@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "iam-client"
+version = "0.1.0"
+description = ""
+authors = ["choww <carmenchow@protonmail.com>"]
+readme = "README.md"
+packages = [{include = "iam_client", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+boto3 = "^1.28.79"
+policyuniverse = "^1.5.1.20230817"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
