@@ -20,7 +20,8 @@ def validate_arn(input):
 
 # TODO convert this to take YAML configs instead 
 def get_input(session):
-    resource = input("What's the ARN of the AWS resource you would like to access?\n") or 'arn:aws:s3:::yelp-data-lake-si-dev-us-west-2'
+    # TODO add AWS profile to account mapping
+    resource = input("What's the ARN of the AWS resource you would like to access?\n") or 'arn:aws:dynamodb:us-west-1:056083216413:table/gondola-active'
     resource_arn = validate_arn(resource) 
     identity = input("What's the ARN of the IAM identity you're using to access the resource?\n") or 'arn:aws:iam::528741615426:role/gondola'
     iam_arn = validate_arn(identity)
@@ -28,7 +29,10 @@ def get_input(session):
     repo = input("What's the SSH URL of your Terraform repo?\n") or 'git@github.yelpcorp.com:misc/terraform-code.git'
 
     service = resource_arn.tech
-    client = session.client(service)
+    if service not in ['s3', 'iam']: 
+        client = session.client(service, region_name='us-west-2')
+    else: 
+        client = session.client(service)
     actions = ('\n').join(client.meta.service_model.operation_names)
     print(f"\nHere is a list of available actions for your chosen AWS resource: \n{actions}")
     action = input("\nWhat action would you like to perform on the AWS resource? (default: \'*\')\n") or '*'

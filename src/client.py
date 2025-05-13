@@ -65,35 +65,37 @@ class IAMPolicyEvaluator:
                                 arn = ARN(entity.replace('<iam_admin_aws_account_id>', self.account_id))
 
                                 if arn.name == self.identity.name: 
-                                    trusted_roles.append(arn.arn) 
+                                    trusted_roles.append(arn) 
 
         return trusted_roles 
         
 
     '''
-    takes an array of role ARNs as input
+    takes an array of ARN objects as input
     output: 
     {
         '<role-arn>': [policies]
     }
     '''
-    def search_trust_relationship_policies(self, trust_relationships): 
-        policies = {}
-        for arn in trust_relationships: 
-            query = self.iam_client.list_policies_granting_service_access(
-                Arn=arn,
-                ServiceNamespaces=[self.service]
-            )
-            results = query.search('PoliciesGrantingServiceAccess')
-            policies[arn] = results
-            print(arn, results)
+    def evaluate_trusted_role_policies(self, trusted_roles): 
+        decision = []
+        for arn in trusted_roles: 
+            role_account_id = arn.account_number
+            iam_client = self.iam_client
 
-        return policies
+            if role_account_id != self.account_id: 
+                print('using prod credentials')
+                session = boto3.Session(profile_name='prod')
+                iam_client = session.client('iam')
+
+            decision.append(self.get_identity_policies(arn.arn, self.action, iam_client))
+
+        return decision
 
     
-    def get_identity_policies(self, caller_arn, target_action, resource_arn):
+    def get_identity_policies(self, caller_arn, target_action, iam_client):
         print(f"\nGetting identity policies for {caller_arn}...")
-        query = self.iam_client.list_policies_granting_service_access(
+        query = iam_client.list_policies_granting_service_access(
             Arn=caller_arn,
             ServiceNamespaces=[self.service],
         )
@@ -112,17 +114,17 @@ class IAMPolicyEvaluator:
         allow_policies = []
         deny_policies = []
         for arn in policies['managed']: 
-            paginator = self.iam_client.get_paginator('list_policy_versions')
+            paginator = iam_client.get_paginator('list_policy_versions')
             query = paginator.paginate(PolicyArn=arn)
             results = query.search('Versions[?IsDefaultVersion == `true`].VersionId')
     
             for page in results:
-                policy = self.iam_client.get_policy_version(
+                policy = iam_client.get_policy_version(
                     PolicyArn=arn,
                     VersionId=page
                 )
                 document = policy.get('PolicyVersion', {}).get('Document', {})
-                decisions = self.evaluate_policy(document, target_action, resource_arn, caller_arn)
+                decisions = self.evaluate_policy(document, target_action, self.resource.arn, caller_arn, iam_client)
     
                 for decision in decisions: 
                     match decision.get('decision'):
@@ -134,12 +136,12 @@ class IAMPolicyEvaluator:
     
         for name in policies['inline']:
             role = caller_arn.split(':')[5].split('/')[1] 
-            policy = self.iam_client.get_role_policy(
+            policy = iam_client.get_role_policy(
                 PolicyName=name,
                 RoleName=role,
             )
             document = policy.get('PolicyDocument')
-            decisions = self.evaluate_policy(document, target_action, resource_arn, caller_arn)
+            decisions = self.evaluate_policy(document, target_action, self.resource.arn, caller_arn, iam_client)
     
             for decision in decisions: 
                 match decision:
@@ -151,15 +153,15 @@ class IAMPolicyEvaluator:
     
         if deny_policies:
             results = '\n'.join(deny_policies)
-            return f'{target_action} on {resource_arn} is DENIED by these policies: \n{results}'
+            return f'{target_action} on {self.resource.arn} is DENIED by these policies: \n\t{results}'
         elif allow_policies: 
             results = '\n'.join(allow_policies)
-            return f'{target_action} on {resource_arn} is ALLOWED by these policies: \n{results}'
+            return f'✅ {target_action} on {self.resource.arn} is ALLOWED by these policies: \n\t{results}'
         elif not deny_policies and not allow_policies: 
-            return f'{target_action} on {resource_arn} is implicitly DENIED--please add IAM policies to allow access'
+            return f'{target_action} on {self.resource.arn} is implicitly DENIED--please add IAM policies to allow access'
     
-    def evaluate_policy(self, policies, action, resource_arn, iam_arn):
-        paginator = self.iam_client.get_paginator('simulate_principal_policy')
+    def evaluate_policy(self, policies, action, resource_arn, iam_arn, iam_client):
+        paginator = iam_client.get_paginator('simulate_principal_policy')
     
         query = paginator.paginate(
             # TODO make this support wildcards 
@@ -257,14 +259,20 @@ class IAMPolicyEvaluator:
         #resource_policies = self.get_resource_policies()
         #resource_decision = self.evaluate_resource_policy(resource_policies)
         trusted_roles = self.get_trust_relationships()
-        print(f'\n{self.identity.arn} is allowed to assume these roles: {trusted_roles}')
+        print(f'\n{self.identity.arn} is allowed to assume these roles: {[arn.arn for arn in trusted_roles]}')
+        trusted_roles_decision = self.evaluate_trusted_role_policies(trusted_roles)
+        print('\n'.join(trusted_roles_decision))
+        #if not trusted_roles_decision: 
+        #    print(f'\n{self.identity.arn} has no permissions to `{self.action}` on resource {self.resource.arn} through role assumption')
+        #else: 
+        #    print(f'\n{self.identity.arn} has permissions to `{self.action}` on resource {self.resource.arn} through {','.join(trusted_roles_decision.keys())}')
     
         identity_policies = {}
         iam_resource = self.identity.name.split('/')[0]
-        #match iam_resource:
-        #    case 'role':
-        #        identity_policies = self.get_identity_policies(self.arn, self.action, self.resource.arn)
-        #        print('\n', identity_policies)
+        match iam_resource:
+            case 'role':
+                identity_policies = self.get_identity_policies(self.arn, self.action, self.iam_client) 
+                print('\n', identity_policies)
             # case 'assumed-role':
         #    case 'user':
         #        identity_policies = iam_client.get_user_policies()
