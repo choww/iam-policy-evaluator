@@ -1,6 +1,8 @@
+import argparse
 import os
 import shutil
-import sys 
+import sys
+import yaml
 
 from git import Repo
 from policyuniverse.arn import ARN
@@ -19,54 +21,77 @@ def validate_arn(input):
     return arn
 
 # TODO convert this to take YAML configs instead 
-def get_input(session):
-    # TODO add AWS profile to account mapping
-    resource = input("What's the ARN of the AWS resource you would like to access?\n") or 'arn:aws:dynamodb:us-west-1:056083216413:table/gondola-active'
-    resource_arn = validate_arn(resource) 
-    identity = input("What's the ARN of the IAM identity you're using to access the resource?\n") or 'arn:aws:iam::528741615426:role/gondola'
-    iam_arn = validate_arn(identity)
-    # TODO add validation
-    repo = input("What's the SSH URL of your Terraform repo?\n") or 'git@github.yelpcorp.com:misc/terraform-code.git'
+def get_input(session, args=sys.argv):
+    parser = argparse.ArgumentParser()
 
-    service = resource_arn.tech
-    if service not in ['s3', 'iam']: 
-        client = session.client(service, region_name='us-west-2')
-    else: 
-        client = session.client(service)
-    actions = ('\n').join(client.meta.service_model.operation_names)
-    print(f"\nHere is a list of available actions for your chosen AWS resource: \n{actions}")
-    action = input("\nWhat action would you like to perform on the AWS resource? (default: \'*\')\n") or '*'
+    parser.add_argument(
+        "-c",
+        "--config", 
+        default="config.yaml",
+        help="Path to config file. Default is %(default)s",
+    )
 
+    parser.add_argument(
+        "--skip-tf-repo",
+        action="store_true",
+        help="Skip cloning terraform repo (useful if the repo is already clone to the tmp path)"
+    )
+
+    params = parser.parse_args(args[1:])
+
+    print(params)
+
+    with open(params.config, 'r') as config_file: 
+        config = yaml.safe_load(config_file)
+
+        role = validate_arn(config['role_arn'])
+        resource = validate_arn(config['resource']['arn'])
+        service = resource.tech
+
+        if service not in ['s3', 'iam']: 
+            client = session.client(service, region_name=resource.region)
+        else: 
+            client = session.client(service)
+        actions = ('\n').join(client.meta.service_model.operation_names)
+        print(f"\nHere is a list of available actions for your chosen AWS resource: \n{actions}")
+        action = input("\nWhat action would you like to perform on the AWS resource? (default: \'*\')\n") or '*'
+        
+        params = {
+            'resource': resource,
+            'client': client, 
+            'repo': config['tf_repo']['url'],
+            'iam_dirs': config['tf_repo']['iam_directories'],
+            'service': service, 
+            'identity': role,
+            'action': f'{service}:{action}',
+            'aws_profiles': config['aws_profiles'],
+            'skip_tf': params.skip_tf_repo,
+        }
+
+        return params
+
+def get_tf_repo(repo_url, skip=False):
+    if skip: 
+        return
     
-    params = {
-        'resource': resource_arn,
-        'client': client, 
-        'repo': repo,
-        'service': service, 
-        'identity': iam_arn,
-        'action': f'{service}:{action}',
-    }
-
-    return params
-
-def get_tf_repo(repo_url):
     print('⬇ cloning terraform repo...')
-    #if os.path.exists(TMP_PATH):
-    #    # deletes the tmp dir if it exists
-    #    shutil.rmtree(TMP_PATH)
+    if os.path.exists(TMP_PATH):
+        # deletes the tmp dir if it exists
+        shutil.rmtree(TMP_PATH)
 
-    #Repo.clone_from(repo_url, TMP_PATH, branch='main')
+    Repo.clone_from(repo_url, TMP_PATH, branch='main')
 
-def get_iam_role_files(): 
+def get_iam_role_files(iam_role_dirs): 
     iam_role_files = []
-    # TODO make this configurable and to other environments 
-    iam_roles_dir = f'{TMP_PATH}/projects/iam_roles/dev'
+
+    iam_role_paths = [f'{TMP_PATH}/{dir}' for dir in iam_role_dirs]
     
-    # walk thru all <env>/roles/*.yaml files
-    for root, dirs, files, in os.walk(iam_roles_dir):
-        for file in files:
-            if file.endswith('.yaml'):
-                path = os.path.join(root, file)
-                iam_role_files.append(path)
+    # walk thru all *.yaml files
+    for path in iam_role_paths: 
+        for root, dirs, files, in os.walk(path):
+            for file in files:
+                if file.endswith('.yaml'):
+                    path = os.path.join(root, file)
+                    iam_role_files.append(path)
 
     return iam_role_files

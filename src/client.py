@@ -21,11 +21,12 @@ class IAMPolicyEvaluator:
         self.resource = params['resource']
         self.service_client = params['client']
         self.service = params['service']
+        self.iam_dirs = params['iam_dirs']
 
         self.arn = self.identity.arn
         self.account_id = self.identity.account_number
 
-        helpers.get_tf_repo(params['repo'])
+        helpers.get_tf_repo(params['repo'], params['skip_tf'])
 
     def get_resource_policies(self):
         match self.service: 
@@ -41,10 +42,8 @@ class IAMPolicyEvaluator:
                 return 
 
     # get all the roles that we're allowed to assume
-    def get_trust_relationships(self):
+    def get_trust_relationships(self, files):
         trusted_roles = []
-        # get all roles containing trust relationships in the same account
-        files = helpers.get_iam_role_files()
 
         for path in files: 
             with open(path, 'r') as file: 
@@ -254,11 +253,13 @@ class IAMPolicyEvaluator:
     
     def main(self):
         print(f'\nChecking if {self.identity.name} has permissions to `{self.action}` on resource {self.resource.arn}...')
-    
              
         #resource_policies = self.get_resource_policies()
         #resource_decision = self.evaluate_resource_policy(resource_policies)
-        trusted_roles = self.get_trust_relationships()
+
+        # get all roles containing trust relationships in the same account
+        files = helpers.get_iam_role_files(self.iam_dirs)
+        trusted_roles = self.get_trust_relationships(files)
         print(f'\n{self.identity.arn} is allowed to assume these roles: {[arn.arn for arn in trusted_roles]}')
         trusted_roles_decision = self.evaluate_trusted_role_policies(trusted_roles)
         print('\n'.join(trusted_roles_decision))
