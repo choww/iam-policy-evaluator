@@ -1,2 +1,2 @@
 run: 
-	poetry run python src/client.py
+	AWS_PROFILE=default poetry run python src/client.py
