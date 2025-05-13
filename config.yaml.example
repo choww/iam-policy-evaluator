@@ -5,14 +5,15 @@ role_arn: arn:aws:iam::123456789012:role/developers
 aws_profiles: 
   # format should be <aws-account-id>: <profile name from ~/.aws/credentials>
   123456789012: prod
-  246801357924: default
+  246801357924: staging 
 # the SSH url of the terraform repo where IAM roles are created
 tf_repo: 
   url: git@github.com:choww/terraform.git
   # path in the repo where IAM roles are stored, relative to root of the terraform repo
+  # only works if IAM roles for different environments are stored in separate directories
   iam_directories: 
-    - projects/service_roles
-    - projects/team_roles
+    - projects/service_roles/staging
+    - projects/team_roles/staging
 
 
 

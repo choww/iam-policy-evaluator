@@ -20,7 +20,6 @@ def validate_arn(input):
    
     return arn
 
-# TODO convert this to take YAML configs instead 
 def get_input(session, args=sys.argv):
     parser = argparse.ArgumentParser()
 
@@ -39,8 +38,6 @@ def get_input(session, args=sys.argv):
 
     params = parser.parse_args(args[1:])
 
-    print(params)
-
     with open(params.config, 'r') as config_file: 
         config = yaml.safe_load(config_file)
 
@@ -53,7 +50,8 @@ def get_input(session, args=sys.argv):
         else: 
             client = session.client(service)
         actions = ('\n').join(client.meta.service_model.operation_names)
-        print(f"\nHere is a list of available actions for your chosen AWS resource: \n{actions}")
+        input(f'\n➡️ A list of available actions for your chosen AWS resource (`{service}`) has been retrieved. Press \033[1m⏎ Enter\033[0m to see the list')
+        print('\n', actions)
         action = input("\nWhat action would you like to perform on the AWS resource? (default: \'*\')\n") or '*'
         
         params = {

@@ -15,13 +15,15 @@ class IAMPolicyEvaluator:
         self.iam_client = self.session.client('iam')
 
         params = helpers.get_input(self.session)
-    
+   
+        # TODO allow selecting more than one action
         self.action = params['action']
         self.identity = params['identity']
         self.resource = params['resource']
         self.service_client = params['client']
         self.service = params['service']
         self.iam_dirs = params['iam_dirs']
+        self.aws_profiles = params['aws_profiles']
 
         self.arn = self.identity.arn
         self.account_id = self.identity.account_number
@@ -60,7 +62,7 @@ class IAMPolicyEvaluator:
                             if type(principal) != list: 
                                 principal = [principal]
 
-                            for entity in principal: 
+                            for entity in principal:
                                 arn = ARN(entity.replace('<iam_admin_aws_account_id>', self.account_id))
 
                                 if arn.name == self.identity.name: 
@@ -83,8 +85,7 @@ class IAMPolicyEvaluator:
             iam_client = self.iam_client
 
             if role_account_id != self.account_id: 
-                print('using prod credentials')
-                session = boto3.Session(profile_name='prod')
+                session = boto3.Session(profile_name=self.aws_profiles[role_account_id])
                 iam_client = session.client('iam')
 
             decision.append(self.get_identity_policies(arn.arn, self.action, iam_client))
@@ -273,7 +274,7 @@ class IAMPolicyEvaluator:
         match iam_resource:
             case 'role':
                 identity_policies = self.get_identity_policies(self.arn, self.action, self.iam_client) 
-                print('\n', identity_policies)
+                print(identity_policies)
             # case 'assumed-role':
         #    case 'user':
         #        identity_policies = iam_client.get_user_policies()
