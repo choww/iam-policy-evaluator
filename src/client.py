@@ -22,7 +22,6 @@ class IAMPolicyEvaluator:
         self.resource = params['resource']
         self.service_client = params['client']
         self.service = params['service']
-        self.iam_dirs = params['iam_dirs']
         self.aws_profiles = params['aws_profiles']
 
         self.arn = self.identity.arn
@@ -31,8 +30,6 @@ class IAMPolicyEvaluator:
         self.trust_tree = {}
 
         self.role_assumption_only = params['role_assumption_only']
-
-        helpers.get_tf_repo(params['repo'], params['skip_tf'])
 
 
     def get_resource_policies(self):

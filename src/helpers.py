@@ -1,13 +1,9 @@
 import argparse
-import os
-import shutil
 import sys
 import yaml
 
-from git import Repo
 from policyuniverse.arn import ARN
 
-TMP_PATH = '/tmp/terraform-code-iam-eval'
 
 class InvalidARNException(Exception):
     #sys.tracebacklimit = 0 # omit error trace in error message
@@ -30,11 +26,11 @@ def get_input(session, args=sys.argv):
         help="Path to config file. Default is %(default)s",
     )
 
-    parser.add_argument(
-        "--skip-tf-repo",
-        action="store_true",
-        help="Skip cloning terraform repo (useful if the repo is already clone to the tmp path)"
-    )
+    #parser.add_argument(
+    #    "--skip-tf-repo",
+    #    action="store_true",
+    #    help="Skip cloning terraform repo (useful if the repo is already clone to the tmp path)"
+    #)
 
     parser.add_argument(
         "--role-assumption-only",
@@ -64,40 +60,11 @@ def get_input(session, args=sys.argv):
         params = {
             'resource': resource,
             'client': client, 
-            'repo': config['tf_repo']['url'],
-            'iam_dirs': config['tf_repo']['iam_directories'],
             'service': service, 
             'identity': role,
             'action': f'{service}:{action}',
             'aws_profiles': config['aws_profiles'],
-            'skip_tf': params.skip_tf_repo,
             'role_assumption_only': params.role_assumption_only,
         }
 
         return params
-
-def get_tf_repo(repo_url, skip=False):
-    if skip: 
-        return
-    
-    print('⬇ cloning terraform repo...')
-    if os.path.exists(TMP_PATH):
-        # deletes the tmp dir if it exists
-        shutil.rmtree(TMP_PATH)
-
-    Repo.clone_from(repo_url, TMP_PATH, branch='main')
-
-def get_iam_role_files(iam_role_dirs): 
-    iam_role_files = []
-
-    iam_role_paths = [f'{TMP_PATH}/{dir}' for dir in iam_role_dirs]
-    
-    # walk thru all *.yaml files
-    for path in iam_role_paths: 
-        for root, dirs, files, in os.walk(path):
-            for file in files:
-                if file.endswith('.yaml'):
-                    path = os.path.join(root, file)
-                    iam_role_files.append(path)
-
-    return iam_role_files
