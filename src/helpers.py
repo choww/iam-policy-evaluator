@@ -36,11 +36,11 @@ def get_input(session, args=sys.argv):
         help="Skip cloning terraform repo (useful if the repo is already clone to the tmp path)"
     )
 
-    #parser.add_argument(
-    #    "--role-assumption-only",
-    #    action="store_true",
-    #    help="Skip analyzing permissions on resources, just return role assumption info for the given role"
-    #)
+    parser.add_argument(
+        "--role-assumption-only",
+        action="store_true",
+        help="Skip analyzing permissions on resources, just return role assumption info for the given role"
+    )
 
     params = parser.parse_args(args[1:])
 
@@ -71,6 +71,7 @@ def get_input(session, args=sys.argv):
             'action': f'{service}:{action}',
             'aws_profiles': config['aws_profiles'],
             'skip_tf': params.skip_tf_repo,
+            'role_assumption_only': params.role_assumption_only,
         }
 
         return params

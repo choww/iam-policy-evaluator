@@ -28,7 +28,12 @@ class IAMPolicyEvaluator:
         self.arn = self.identity.arn
         self.account_id = self.identity.account_number
 
+        self.trust_tree = {}
+
+        self.role_assumption_only = params['role_assumption_only']
+
         helpers.get_tf_repo(params['repo'], params['skip_tf'])
+
 
     def get_resource_policies(self):
         match self.service: 
@@ -43,15 +48,20 @@ class IAMPolicyEvaluator:
                 print(f"Getting resource policy for {self.service} isn't supported yet")
                 return 
 
-    # get all the roles that we're allowed to assume
-    def get_trust_relationships(self):
+    def get_assume_role_policies(self): 
         paginator = self.iam_client.get_paginator('get_account_authorization_details')
         query = paginator.paginate(Filter=['Role'])
-        results = query.search('RoleDetailList[].{arn: Arn, relationships: AssumeRolePolicyDocument}')
 
+        return query.search('RoleDetailList[].{arn: Arn, relationships: AssumeRolePolicyDocument}')
+
+    # get all the roles that we're allowed to assume
+    def get_trust_relationships(self, role_name, assume_role_policies):
+        #paginator = self.iam_client.get_paginator('get_account_authorization_details')
+        #query = paginator.paginate(Filter=['Role'])
+        #results = query.search('RoleDetailList[].{arn: Arn, relationships: AssumeRolePolicyDocument}')
         trusted_roles = []
-        for item in results: 
-            #print('\n', item)
+
+        for item in assume_role_policies: 
             statement = item['relationships']['Statement']
 
             for policy in statement: 
@@ -65,12 +75,12 @@ class IAMPolicyEvaluator:
 
                 for entity in principal:
                     entity_arn = ARN(entity)
-                    if entity_arn.name == self.identity.name: 
+                    if entity_arn.name == role_name: 
                         trusted_roles.append(ARN(item['arn']))
 
         return trusted_roles 
-        
 
+            
     '''
     takes an array of ARN objects as input
     output: 
@@ -175,7 +185,7 @@ class IAMPolicyEvaluator:
     
         return  query.search('EvaluationResults[].{ decision: EvalDecision, resource: ResourceSpecificResults }')
     
-
+    # TODO get this to work
     def evaluate_resource_policy(self, resource_policies):
         policies = Policy(resource_policies)
 
@@ -259,8 +269,13 @@ class IAMPolicyEvaluator:
 
         # get all roles containing trust relationships in the same account
         #files = helpers.get_iam_role_files(self.iam_dirs)
-        trusted_roles = self.get_trust_relationships()
+        assume_role_policies = self.get_assume_role_policies()
+        trusted_roles = self.get_trust_relationships(self.identity.name, assume_role_policies)
         print(f'\n{self.identity.arn} is allowed to assume these roles: {[arn.arn for arn in trusted_roles]}')
+
+        if self.role_assumption_only: 
+            return
+
         trusted_roles_decision = self.evaluate_trusted_role_policies(trusted_roles)
         print('\n'.join(trusted_roles_decision))
     
