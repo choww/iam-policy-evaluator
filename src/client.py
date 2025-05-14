@@ -44,29 +44,29 @@ class IAMPolicyEvaluator:
                 return 
 
     # get all the roles that we're allowed to assume
-    def get_trust_relationships(self, files):
+    def get_trust_relationships(self):
+        paginator = self.iam_client.get_paginator('get_account_authorization_details')
+        query = paginator.paginate(Filter=['Role'])
+        results = query.search('RoleDetailList[].{arn: Arn, relationships: AssumeRolePolicyDocument}')
+
         trusted_roles = []
+        for item in results: 
+            #print('\n', item)
+            statement = item['relationships']['Statement']
 
-        for path in files: 
-            with open(path, 'r') as file: 
-                contents = yaml.safe_load(file)
+            for policy in statement: 
+                principal = policy['Principal'].get('AWS')
 
-                for key, value in contents.items():
-                    if key == 'TrustRelationship' and value.get('Statement'): 
-                        for policy in value['Statement']: 
-                            principal = policy['Principal'].get('AWS')
+                if not principal: 
+                    continue
+                # normalize format of policies
+                if type(principal) != list: 
+                    principal = [principal]
 
-                            if not principal: 
-                                continue
-                            # normalize format of policies
-                            if type(principal) != list: 
-                                principal = [principal]
-
-                            for entity in principal:
-                                arn = ARN(entity.replace('<iam_admin_aws_account_id>', self.account_id))
-
-                                if arn.name == self.identity.name: 
-                                    trusted_roles.append(arn) 
+                for entity in principal:
+                    entity_arn = ARN(entity)
+                    if entity_arn.name == self.identity.name: 
+                        trusted_roles.append(ARN(item['arn']))
 
         return trusted_roles 
         
@@ -171,7 +171,6 @@ class IAMPolicyEvaluator:
             # only supports testing resource base policies for IAM users
             # https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_testing-policies.html
             ResourceArns=[resource_arn],
-            #ResourcePolicy=resource_policies,
         )
     
         return  query.search('EvaluationResults[].{ decision: EvalDecision, resource: ResourceSpecificResults }')
@@ -259,31 +258,27 @@ class IAMPolicyEvaluator:
         #resource_decision = self.evaluate_resource_policy(resource_policies)
 
         # get all roles containing trust relationships in the same account
-        files = helpers.get_iam_role_files(self.iam_dirs)
-        trusted_roles = self.get_trust_relationships(files)
+        #files = helpers.get_iam_role_files(self.iam_dirs)
+        trusted_roles = self.get_trust_relationships()
         print(f'\n{self.identity.arn} is allowed to assume these roles: {[arn.arn for arn in trusted_roles]}')
         trusted_roles_decision = self.evaluate_trusted_role_policies(trusted_roles)
         print('\n'.join(trusted_roles_decision))
-        #if not trusted_roles_decision: 
-        #    print(f'\n{self.identity.arn} has no permissions to `{self.action}` on resource {self.resource.arn} through role assumption')
-        #else: 
-        #    print(f'\n{self.identity.arn} has permissions to `{self.action}` on resource {self.resource.arn} through {','.join(trusted_roles_decision.keys())}')
     
-        identity_policies = {}
-        iam_resource = self.identity.name.split('/')[0]
-        match iam_resource:
-            case 'role':
-                identity_policies = self.get_identity_policies(self.arn, self.action, self.iam_client) 
-                print(identity_policies)
-            # case 'assumed-role':
-        #    case 'user':
-        #        identity_policies = iam_client.get_user_policies()
-        #    case 'group':
-        #        identity_policies = iam_client.list_group_policies()
-        #    case 'root': 
-        #        return
-        #    case _:
-        #        return
+        #identity_policies = {}
+        #iam_resource = self.identity.name.split('/')[0]
+        #match iam_resource:
+        #    case 'role':
+        #        identity_policies = self.get_identity_policies(self.arn, self.action, self.iam_client) 
+        #        print(identity_policies)
+        #    # case 'assumed-role':
+        ##    case 'user':
+        ##        identity_policies = iam_client.get_user_policies()
+        ##    case 'group':
+        ##        identity_policies = iam_client.list_group_policies()
+        ##    case 'root': 
+        ##        return
+        ##    case _:
+        ##        return
 
 
 if __name__ == '__main__':

@@ -14,6 +14,3 @@ tf_repo:
   iam_directories: 
     - projects/service_roles/staging
     - projects/team_roles/staging
-
-
-

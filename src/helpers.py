@@ -36,6 +36,12 @@ def get_input(session, args=sys.argv):
         help="Skip cloning terraform repo (useful if the repo is already clone to the tmp path)"
     )
 
+    #parser.add_argument(
+    #    "--role-assumption-only",
+    #    action="store_true",
+    #    help="Skip analyzing permissions on resources, just return role assumption info for the given role"
+    #)
+
     params = parser.parse_args(args[1:])
 
     with open(params.config, 'r') as config_file: 
@@ -50,9 +56,10 @@ def get_input(session, args=sys.argv):
         else: 
             client = session.client(service)
         actions = ('\n').join(client.meta.service_model.operation_names)
-        input(f'\n➡️ A list of available actions for your chosen AWS resource (`{service}`) has been retrieved. Press \033[1m⏎ Enter\033[0m to see the list')
-        print('\n', actions)
-        action = input("\nWhat action would you like to perform on the AWS resource? (default: \'*\')\n") or '*'
+        #input(f'\n➡️ A list of available actions for your chosen AWS resource (`{service}`) has been retrieved. Press \033[1m⏎ Enter\033[0m to see the list')
+        #print('\n', actions)
+        #action = input("\nWhat action would you like to perform on the AWS resource? (default: \'*\')\n") or '*'
+        action = '*'
         
         params = {
             'resource': resource,
