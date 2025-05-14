@@ -1,0 +1,8 @@
+resource: 
+  arn: arn:aws:dynamodb:us-west-2:123456789012:table/test-table
+# IAM role arn you want to use to access the resource
+role_arn: arn:aws:iam::123456789012:role/developers
+aws_profiles: 
+  # format should be <aws-account-id>: <profile name from ~/.aws/credentials>
+  123456789012: prod
+  246801357924: staging 

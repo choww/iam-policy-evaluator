@@ -1,6 +1,9 @@
-import sys 
+import argparse
+import sys
+import yaml
 
 from policyuniverse.arn import ARN
+
 
 class InvalidARNException(Exception):
     #sys.tracebacklimit = 0 # omit error trace in error message
@@ -13,27 +16,55 @@ def validate_arn(input):
    
     return arn
 
+def get_input(session, args=sys.argv):
+    parser = argparse.ArgumentParser()
 
-def get_input(session):
-    resource = input("What's the ARN of the AWS resource you would like to access?\n") or 'arn:aws:s3:::yelp-scribe-logs-dev-us-west-2'
-    resource_arn = validate_arn(resource)
-    identity = input("What's the ARN of the IAM identity you're using to access the resource?\n") or 'arn:aws:iam::528741615426:role/security'
-    iam_arn = validate_arn(identity)
+    parser.add_argument(
+        "-c",
+        "--config", 
+        default="config.yaml",
+        help="Path to config file. Default is %(default)s",
+    )
 
-    service = resource_arn.tech
-    client = session.client(service)
-    actions = ('\n').join(client.meta.service_model.operation_names)
-    print(f"\nHere is a list of available actions for your chosen AWS resource: \n{actions}")
-    action = input("\nWhat action would you like to perform on the AWS resource? (default: \'*\')\n") or '*'
+    #parser.add_argument(
+    #    "--skip-tf-repo",
+    #    action="store_true",
+    #    help="Skip cloning terraform repo (useful if the repo is already clone to the tmp path)"
+    #)
 
-    
-    params = {
-        'resource': resource_arn,
-        'client': client, 
-        'service': service, 
-        'identity': iam_arn,
-        'action': f'{service}:{action}',
-    }
+    parser.add_argument(
+        "--role-assumption-only",
+        action="store_true",
+        help="Skip analyzing permissions on resources, just return role assumption info for the given role"
+    )
 
-    return params
+    params = parser.parse_args(args[1:])
 
+    with open(params.config, 'r') as config_file: 
+        config = yaml.safe_load(config_file)
+
+        role = validate_arn(config['role_arn'])
+        resource = validate_arn(config['resource']['arn'])
+        service = resource.tech
+
+        if service not in ['s3', 'iam']: 
+            client = session.client(service, region_name=resource.region)
+        else: 
+            client = session.client(service)
+        actions = ('\n').join(client.meta.service_model.operation_names)
+        #input(f'\n➡️ A list of available actions for your chosen AWS resource (`{service}`) has been retrieved. Press \033[1m⏎ Enter\033[0m to see the list')
+        #print('\n', actions)
+        #action = input("\nWhat action would you like to perform on the AWS resource? (default: \'*\')\n") or '*'
+        action = '*'
+        
+        params = {
+            'resource': resource,
+            'client': client, 
+            'service': service, 
+            'identity': role,
+            'action': f'{service}:{action}',
+            'aws_profiles': config['aws_profiles'],
+            'role_assumption_only': params.role_assumption_only,
+        }
+
+        return params

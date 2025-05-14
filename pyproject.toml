@@ -10,6 +10,7 @@ packages = [{include = "iam_client", from = "src"}]
 python = "^3.10"
 boto3 = "^1.28.79"
 policyuniverse = "^1.5.1.20230817"
+pyyaml = "^6.0.2"
 
 
 [build-system]
