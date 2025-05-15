@@ -3,36 +3,35 @@ import json
 import os
 import yaml
 
-import helpers
+import src.helpers as helpers 
+import src.tree as tree
 
 from policyuniverse.arn import ARN
 from policyuniverse.policy import Policy
 
 class IAMPolicyEvaluator: 
-    def __init__(self): 
-        self.session = boto3.Session(profile_name=os.environ['AWS_PROFILE'])
+    def __init__(self, params): 
+        self.params = params 
 
-        self.iam_client = self.session.client('iam')
-
-        params = helpers.get_input(self.session)
-   
         # TODO allow selecting more than one action
         self.action = params['action']
         self.identity = params['identity']
         self.resource = params['resource']
-        self.service_client = params['client']
         self.service = params['service']
         self.aws_profiles = params['aws_profiles']
 
         self.arn = self.identity.arn
         self.account_id = self.identity.account_number
 
-        self.trust_tree = {}
-
         self.role_assumption_only = params['role_assumption_only']
 
 
     def get_resource_policies(self):
+        if self.service not in ['s3', 'iam']: 
+            self.service_client = self.session.client(self.service, region_name=self.resource.region)
+        else: 
+            self.service_client = self.session.client(self.service)
+
         match self.service: 
             case 's3': 
                 bucket = self.resource.name.split('/')[0]
@@ -51,11 +50,30 @@ class IAMPolicyEvaluator:
 
         return query.search('RoleDetailList[].{arn: Arn, relationships: AssumeRolePolicyDocument}')
 
+    def build_trust_tree(self, trusted_roles, assume_role_policies, parent_node):
+        for role in trusted_roles: 
+            node = tree.Node(role.arn, role.name)
+            node.parent = parent_node
+            
+            parent_node.add_trust_relationship(node)
+
+            child_trusted_roles = self.get_trust_relationships(node.name, assume_role_policies)
+            self.build_trust_tree(child_trusted_roles, assume_role_policies, node)
+
+    '''
+    start_node = the node whose trust tree we want to get 
+    results = array to track the chain of role assumption
+    '''
+    def get_trust_tree(self, start_node, results): 
+        results[start_node.arn] = {}
+        root = results[start_node.arn]
+    
+        for relationship in start_node.trust_relationships: 
+            self.get_trust_tree(relationship, root)
+
+
     # get all the roles that we're allowed to assume
     def get_trust_relationships(self, role_name, assume_role_policies):
-        #paginator = self.iam_client.get_paginator('get_account_authorization_details')
-        #query = paginator.paginate(Filter=['Role'])
-        #results = query.search('RoleDetailList[].{arn: Arn, relationships: AssumeRolePolicyDocument}')
         trusted_roles = []
 
         for item in assume_role_policies: 
@@ -259,29 +277,40 @@ class IAMPolicyEvaluator:
     
     
     def main(self):
+        self.session = boto3.Session(profile_name=os.environ['AWS_PROFILE'])
+        self.iam_client = self.session.client('iam')
+   
         print(f'\nChecking if {self.identity.name} has permissions to `{self.action}` on resource {self.resource.arn}...')
              
         #resource_policies = self.get_resource_policies()
         #resource_decision = self.evaluate_resource_policy(resource_policies)
 
-        # get all roles containing trust relationships in the same account
-        #files = helpers.get_iam_role_files(self.iam_dirs)
+
+        # get all assume role policies in the account
         assume_role_policies = self.get_assume_role_policies()
+
         trusted_roles = self.get_trust_relationships(self.identity.name, assume_role_policies)
-        print(f'\n{self.identity.arn} is allowed to assume these roles: {[arn.arn for arn in trusted_roles]}')
+
+        self.trust_tree = tree.Node(self.arn, self.identity.name)
+        self.build_trust_tree(trusted_roles, assume_role_policies, self.trust_tree)
+
+        role_assumption_chain = {}
+        self.get_trust_tree(self.trust_tree, role_assumption_chain)
+        print(role_assumption_chain[self.arn].keys())
 
         if self.role_assumption_only: 
             return
 
         trusted_roles_decision = self.evaluate_trusted_role_policies(trusted_roles)
         print('\n'.join(trusted_roles_decision))
+
     
-        #identity_policies = {}
-        #iam_resource = self.identity.name.split('/')[0]
-        #match iam_resource:
-        #    case 'role':
-        #        identity_policies = self.get_identity_policies(self.arn, self.action, self.iam_client) 
-        #        print(identity_policies)
+        identity_policies = {}
+        iam_resource = self.identity.name.split('/')[0]
+        match iam_resource:
+            case 'role':
+                identity_policies = self.get_identity_policies(self.arn, self.action, self.iam_client) 
+                print(identity_policies)
         #    # case 'assumed-role':
         ##    case 'user':
         ##        identity_policies = iam_client.get_user_policies()
@@ -294,6 +323,7 @@ class IAMPolicyEvaluator:
 
 
 if __name__ == '__main__':
-    evaluator = IAMPolicyEvaluator()
+    params = helpers.get_input()
+    evaluator = IAMPolicyEvaluator(params)
     evaluator.main()
 

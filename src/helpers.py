@@ -16,7 +16,7 @@ def validate_arn(input):
    
     return arn
 
-def get_input(session, args=sys.argv):
+def get_input(args=sys.argv):
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
@@ -26,11 +26,11 @@ def get_input(session, args=sys.argv):
         help="Path to config file. Default is %(default)s",
     )
 
-    #parser.add_argument(
-    #    "--skip-tf-repo",
-    #    action="store_true",
-    #    help="Skip cloning terraform repo (useful if the repo is already clone to the tmp path)"
-    #)
+    parser.add_argument(
+        "-a", 
+        "--actions-for",
+        help="Provide the AWS resource name for which to list all possible actions"
+    )
 
     parser.add_argument(
         "--role-assumption-only",
@@ -47,19 +47,10 @@ def get_input(session, args=sys.argv):
         resource = validate_arn(config['resource']['arn'])
         service = resource.tech
 
-        if service not in ['s3', 'iam']: 
-            client = session.client(service, region_name=resource.region)
-        else: 
-            client = session.client(service)
-        actions = ('\n').join(client.meta.service_model.operation_names)
-        #input(f'\n➡️ A list of available actions for your chosen AWS resource (`{service}`) has been retrieved. Press \033[1m⏎ Enter\033[0m to see the list')
-        #print('\n', actions)
-        #action = input("\nWhat action would you like to perform on the AWS resource? (default: \'*\')\n") or '*'
-        action = '*'
+        action = config['resource']['action'] or '*'
         
         params = {
             'resource': resource,
-            'client': client, 
             'service': service, 
             'identity': role,
             'action': f'{service}:{action}',
