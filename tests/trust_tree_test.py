@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from policyuniverse.arn import ARN
 from src.client import IAMPolicyEvaluator
-from src.tree import Node
+from src.tree import Node, RoleAssumptionTree
 
 '''
 start_node = the node to start searching from
@@ -127,33 +127,35 @@ class TestTrustTree(unittest.TestCase):
 
         evaluator = IAMPolicyEvaluator(self.test_params)
         evaluator.trust_tree = Node(evaluator.arn, evaluator.identity.name)
-        evaluator.build_trust_tree(trusted_roles, self.assume_role_policies, evaluator.trust_tree)
+
+        tree = RoleAssumptionTree()
+        tree.build(trusted_roles, self.assume_role_policies, evaluator.trust_tree)
 
         examined_role = evaluator.arn
-        tree = evaluator.trust_tree
+        root = evaluator.trust_tree
 
-        self.assertEqual(tree.arn, examined_role)
-        self.assertTrue(tree.is_root_node)
+        self.assertEqual(root.arn, examined_role)
+        self.assertTrue(root.is_root_node)
  
         # examine the first level of trust relationships
-        trusted_roles = [node.arn for node in tree.trust_relationships]
+        trusted_roles = [node.arn for node in root.trust_relationships]
         assert self.jenkins.arn in trusted_roles
         assert self.incident.arn in trusted_roles
 
         # examine the branches
         # incident branch - 0 layers
         incident_relationships = {}
-        search_trust_tree(tree, self.incident.arn, incident_relationships)
+        search_trust_tree(root, self.incident.arn, incident_relationships)
         self.assertEqual(len(incident_relationships[self.incident.arn].keys()), 0)
 
         # app branch - 1 layer deep 
         app_relationships = {}
-        search_trust_tree(tree, self.app.arn, app_relationships)
+        search_trust_tree(root, self.app.arn, app_relationships)
         assert self.test.arn in app_relationships[self.app.arn].keys()
 
         # jenkins branch - 2 layers deep
         jenkins_relationships = {}
-        search_trust_tree(tree, self.jenkins.arn, jenkins_relationships)
+        search_trust_tree(root, self.jenkins.arn, jenkins_relationships)
         assert self.jenkins_controller.arn in jenkins_relationships[self.jenkins.arn].keys()
         assert self.test.arn in jenkins_relationships[self.jenkins.arn][self.jenkins_controller.arn].keys()
 
@@ -166,13 +168,15 @@ class TestTrustTree(unittest.TestCase):
 
         evaluator = IAMPolicyEvaluator(self.test_params)
         evaluator.trust_tree = Node(evaluator.arn, evaluator.identity.name)
-        evaluator.build_trust_tree(trusted_roles, self.assume_role_policies, evaluator.trust_tree)
+
+        tree = RoleAssumptionTree()
+        tree.build(trusted_roles, self.assume_role_policies, evaluator.trust_tree)
 
         examined_role = evaluator.arn
-        tree = evaluator.trust_tree
-
+        root = evaluator.trust_tree
+        
         results = {}
-        evaluator.get_trust_tree(tree, results)
+        tree.get(root, results)
        
         first_branch = list(results[self.dev.arn].keys())
         expected_first_branch = [self.app.arn, self.incident.arn, self.jenkins.arn]
