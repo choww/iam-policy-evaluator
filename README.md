@@ -25,3 +25,9 @@ export AWS_PROFILE=<PROFILE-NAME>
 
 make run
 ```
+
+## Testing
+
+```sh 
+make test
+```

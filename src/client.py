@@ -23,8 +23,6 @@ class IAMPolicyEvaluator:
         self.arn = self.identity.arn
         self.account_id = self.identity.account_number
 
-        self.trust_tree = tree.Node(self.arn, self.identity.name)
-
         self.role_assumption_only = params['role_assumption_only']
 
 
@@ -56,30 +54,37 @@ class IAMPolicyEvaluator:
         for role in trusted_roles: 
             node = tree.Node(role.arn, role.name)
             node.parent = parent_node
-
+            
             parent_node.add_trust_relationship(node)
-            #print(node.arn, [arn.arn for arn in parent_node.trust_relationships])
 
             child_trusted_roles = self.get_trust_relationships(node.name, assume_role_policies)
             self.build_trust_tree(child_trusted_roles, assume_role_policies, node)
 
-    def traverse_trust_tree(self, current_node, visited=None): 
-        # depth-first search
-        if visited is None: 
-            visited = set()
-        visited.add(current_node.arn)
-        print(current_node.arn)
+    '''
+    target_role = the IAM role we want to get the role assumption chain for
+    results = array to track the chain of role assumption
+    depth = show the relative levels of nesting
+    '''
+    def get_role_assumption_chain(self, target_role, results, depth=0, searched=None): 
 
-        for child in current_node.trust_relationships: 
+        if searched is None: 
+            searched = set()
+
+        searched.add(target_role.arn)
+
+        if len(target_role.trust_relationships):
+            arns = [ role.arn for role in target_role.trust_relationships ]
+            print(f"{'- ' * depth}{target_role.arn} can assume these roles: {arns}")
+
+        depth += 1
+
+        for child in target_role.trust_relationships: 
             if child.arn not in visited: 
-                self.traverse_trust_tree(child, visited)
-            
+                self.get_role_assumption_chain(child, results, depth, visited) 
+
 
     # get all the roles that we're allowed to assume
     def get_trust_relationships(self, role_name, assume_role_policies):
-        #paginator = self.iam_client.get_paginator('get_account_authorization_details')
-        #query = paginator.paginate(Filter=['Role'])
-        #results = query.search('RoleDetailList[].{arn: Arn, relationships: AssumeRolePolicyDocument}')
         trusted_roles = []
 
         for item in assume_role_policies: 
@@ -291,19 +296,19 @@ class IAMPolicyEvaluator:
         #resource_policies = self.get_resource_policies()
         #resource_decision = self.evaluate_resource_policy(resource_policies)
 
-        # get all roles containing trust relationships in the same account
-        #files = helpers.get_iam_role_files(self.iam_dirs)
+
+        # get all assume role policies in the account
         assume_role_policies = self.get_assume_role_policies()
+
         trusted_roles = self.get_trust_relationships(self.identity.name, assume_role_policies)
-        print(f'\n{self.identity.arn} is allowed to directly assume these roles: {[arn.arn for arn in trusted_roles]}')
+        #print(f'\n{self.identity.arn} is allowed to directly assume these roles: {[arn.arn for arn in trusted_roles]}')
 
+
+        self.trust_tree = tree.Node(self.arn, self.identity.name)
         self.build_trust_tree(trusted_roles, assume_role_policies, self.trust_tree)
-
-        for node in self.trust_tree.trust_relationships:
-            print(node.arn, len(node.trust_relationships))
-            for role in node.trust_relationships: 
-                print(role.arn)
-                print('trust', [item.arn for item in role.trust_relationships])
+        role_assumption_chain = []
+        self.get_role_assumption_chain(self.trust_tree, role_assumption_chain)
+        print(role_assumption_chain)
 
         if self.role_assumption_only: 
             return

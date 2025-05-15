@@ -1,6 +1,6 @@
 resource: 
   arn: arn:aws:dynamodb:us-west-2:123456789012:table/test-table
-  # if left blank, defaults to *
+  # action you want to perform on the resource. if left blank, defaults to *
   action: PutItem
 # IAM role arn you want to use to access the resource
 role_arn: arn:aws:iam::123456789012:role/developers
