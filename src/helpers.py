@@ -47,14 +47,6 @@ def get_input(args=sys.argv):
         resource = validate_arn(config['resource']['arn'])
         service = resource.tech
 
-        # if service not in ['s3', 'iam']: 
-        #     client = session.client(service, region_name=resource.region)
-        # else: 
-        #     client = session.client(service)
-        # actions = ('\n').join(client.meta.service_model.operation_names)
-        #input(f'\n➡️ A list of available actions for your chosen AWS resource (`{service}`) has been retrieved. Press \033[1m⏎ Enter\033[0m to see the list')
-        #print('\n', actions)
-        #action = input("\nWhat action would you like to perform on the AWS resource? (default: \'*\')\n") or '*'
         action = config['resource']['action'] or '*'
         
         params = {

@@ -1,3 +1,10 @@
+class RoleAssumptionTree:
+    def build(self, roles, trust_policies, parent_node): 
+        print('TODO')
+
+    def search(self, start, target, searched=None):
+        print('TODO')
+
 class Node:
     def __init__(self, arn, name): 
         self.arn = arn

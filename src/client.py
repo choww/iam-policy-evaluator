@@ -61,26 +61,15 @@ class IAMPolicyEvaluator:
             self.build_trust_tree(child_trusted_roles, assume_role_policies, node)
 
     '''
-    target_role = the IAM role we want to get the role assumption chain for
+    start_node = the node whose trust tree we want to get 
     results = array to track the chain of role assumption
-    depth = show the relative levels of nesting
     '''
-    def get_role_assumption_chain(self, target_role, results, depth=0, searched=None): 
-
-        if searched is None: 
-            searched = set()
-
-        searched.add(target_role.arn)
-
-        if len(target_role.trust_relationships):
-            arns = [ role.arn for role in target_role.trust_relationships ]
-            print(f"{'- ' * depth}{target_role.arn} can assume these roles: {arns}")
-
-        depth += 1
-
-        for child in target_role.trust_relationships: 
-            if child.arn not in visited: 
-                self.get_role_assumption_chain(child, results, depth, visited) 
+    def get_trust_tree(self, start_node, results): 
+        results[start_node.arn] = {}
+        root = results[start_node.arn]
+    
+        for relationship in start_node.trust_relationships: 
+            self.get_trust_tree(relationship, root)
 
 
     # get all the roles that we're allowed to assume
@@ -301,14 +290,13 @@ class IAMPolicyEvaluator:
         assume_role_policies = self.get_assume_role_policies()
 
         trusted_roles = self.get_trust_relationships(self.identity.name, assume_role_policies)
-        #print(f'\n{self.identity.arn} is allowed to directly assume these roles: {[arn.arn for arn in trusted_roles]}')
-
 
         self.trust_tree = tree.Node(self.arn, self.identity.name)
         self.build_trust_tree(trusted_roles, assume_role_policies, self.trust_tree)
-        role_assumption_chain = []
-        self.get_role_assumption_chain(self.trust_tree, role_assumption_chain)
-        print(role_assumption_chain)
+
+        role_assumption_chain = {}
+        self.get_trust_tree(self.trust_tree, role_assumption_chain)
+        print(role_assumption_chain[self.arn].keys())
 
         if self.role_assumption_only: 
             return
@@ -317,12 +305,12 @@ class IAMPolicyEvaluator:
         print('\n'.join(trusted_roles_decision))
 
     
-        #identity_policies = {}
-        #iam_resource = self.identity.name.split('/')[0]
-        #match iam_resource:
-        #    case 'role':
-        #        identity_policies = self.get_identity_policies(self.arn, self.action, self.iam_client) 
-        #        print(identity_policies)
+        identity_policies = {}
+        iam_resource = self.identity.name.split('/')[0]
+        match iam_resource:
+            case 'role':
+                identity_policies = self.get_identity_policies(self.arn, self.action, self.iam_client) 
+                print(identity_policies)
         #    # case 'assumed-role':
         ##    case 'user':
         ##        identity_policies = iam_client.get_user_policies()

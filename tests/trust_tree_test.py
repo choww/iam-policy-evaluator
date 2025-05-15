@@ -4,36 +4,46 @@ from unittest.mock import patch
 
 from policyuniverse.arn import ARN
 from src.client import IAMPolicyEvaluator
+from src.tree import Node
 
 '''
 start_node = the node to start searching from
 target_role = the role we want to retrieve trust relationship for 
-visited = keep track of which nodes we already searched
+results = dict that contains the cumulative output of this function--has this structure: 
+    { 
+        'role': { 
+            'assumed-role': { 'assumed-role': {} } 
+        }
+    }
 '''
-def search_trust_tree(start_node, target_role, visited=None): 
-    if visited is None: 
-        visited = set()
-    visited.add(start_node.arn)
-
+def search_trust_tree(start_node, target_role, results): 
+    # once we found the the role we want to build the trust tree for, iterate through all its trust relationships
     if start_node.arn == target_role: 
-        return [ node.arn for node in start_node.trust_relationships ]
+        results[start_node.arn] = {}
+        root = results[start_node.arn] 
+
+        for relationship in start_node.trust_relationships: 
+            search_trust_tree(relationship, relationship.arn, root)
 
     for child in start_node.trust_relationships:
-        if child.arn not in visited: 
-            return search_trust_tree(child, target_role, visited)
+        search_trust_tree(child, target_role, results)
 
 class TestTrustTree(unittest.TestCase): 
     def setUp(self): 
-        self.dev_role = ARN('arn:aws:iam::123456789012:role/developers') 
-        self.jenkins_role = ARN('arn:aws:iam::123456789012:role/jenkins')
-        self.incident_role = ARN('arn:aws:iam::123456789012:role/incident')
-        self.jenkins_controller_role = ARN('arn:aws:iam::123456789012:role/jenkins-controller')
-        self.test_role = ARN('arn:aws:iam::123456789012:role/tests') 
+        self.dev = ARN('arn:aws:iam::123456789012:role/developers') 
+        self.app = ARN('arn:aws:iam::123456789012:role/app') 
+        jenkins = ARN('arn:aws:iam::123456789012:role/jenkins')
+        self.jenkins = Node(jenkins.arn, jenkins.name)
+        self.incident = ARN('arn:aws:iam::123456789012:role/incident')
+        jenkins_controller = ARN('arn:aws:iam::123456789012:role/jenkins-controller')
+        self.jenkins_controller = Node(jenkins_controller.arn, jenkins_controller.name)
+        test = ARN('arn:aws:iam::123456789012:role/tests') 
+        self.test = Node(test.arn, test.name)
 
         self.test_params = {
             'resource': 'arn:aws:dynamodb:us-west-2:123456789012:table/test-table',
             'service': 'dynamodb',
-            'identity': self.dev_role,
+            'identity': self.dev,
             'action': 'dynamodb:PutItem',
             'aws_profiles': {},
             'role_assumption_only': True,
@@ -41,14 +51,14 @@ class TestTrustTree(unittest.TestCase):
 
         self.assume_role_policies = [
             {
-                'arn': self.jenkins_role.arn, 
+                'arn': self.jenkins.arn, 
                 'relationships': {
                     'Statement': [{
                         'Action': 'sts:AssumeRole',
                         'Effect': 'Allow',
                         'Principal': {
                             'AWS': [
-                                self.dev_role.arn,
+                                self.dev.arn,
                                 'arn:aws:iam::123456789012:role/jenkins-admin',
                             ]
                         }
@@ -56,37 +66,52 @@ class TestTrustTree(unittest.TestCase):
                 }
             },
             {
-                'arn': self.incident_role.arn,
+                'arn': self.incident.arn,
                 'relationships': {
                     'Statement': [{
                         'Action': 'sts:AssumeRole',
                         'Effect': 'Allow',
                         'Principal': {
-                            'AWS': self.dev_role.arn
+                            'AWS': self.dev.arn
                         }
                     }]
                 }
             },
             {
-                'arn': self.jenkins_controller_role.arn,
+                'arn': self.jenkins_controller.arn,
                 'relationships': {
                     'Statement': [{
                         'Action': 'sts:AssumeRole',
                         'Effect': 'Allow',
                         'Principal': {
-                            'AWS': self.jenkins_role.arn,
+                            'AWS': self.jenkins.arn,
                         }
                     }]
                 }
             },
             {
-                'arn': 'arn:aws:iam::123456789012:role/tests', 
+                'arn': self.test.arn, 
                 'relationships': {
                     'Statement': [{
                         'Action': 'sts:AssumeRole',
                         'Effect': 'Allow',
                         'Principal': {
-                            'AWS': self.jenkins_controller_role.arn,
+                            'AWS': [
+                                self.jenkins_controller.arn,
+                                self.app.arn,
+                            ]
+                        }
+                    }]
+                }
+            },
+            {
+                'arn': self.app.arn,
+                'relationships': {
+                    'Statement': [{
+                        'Action': 'sts:AssumeRole',
+                        'Effect': 'Allow',
+                        'Principal': {
+                            'AWS': self.dev.arn,
                         }
                     }]
                 }
@@ -95,11 +120,13 @@ class TestTrustTree(unittest.TestCase):
 
     def test_trust_tree(self): 
         trusted_roles = [
-            self.jenkins_role,
-            self.incident_role
+            self.jenkins,
+            self.incident,
+            self.app,
         ]
 
         evaluator = IAMPolicyEvaluator(self.test_params)
+        evaluator.trust_tree = Node(evaluator.arn, evaluator.identity.name)
         evaluator.build_trust_tree(trusted_roles, self.assume_role_policies, evaluator.trust_tree)
 
         examined_role = evaluator.arn
@@ -107,29 +134,59 @@ class TestTrustTree(unittest.TestCase):
 
         self.assertEqual(tree.arn, examined_role)
         self.assertTrue(tree.is_root_node)
-  
+ 
+        # examine the first level of trust relationships
         trusted_roles = [node.arn for node in tree.trust_relationships]
-        assert self.jenkins_role.arn in trusted_roles
-        assert self.incident_role.arn in trusted_roles
+        assert self.jenkins.arn in trusted_roles
+        assert self.incident.arn in trusted_roles
 
-    def test_traverse_trust_tree(self): 
+        # examine the branches
+        # incident branch - 0 layers
+        incident_relationships = {}
+        search_trust_tree(tree, self.incident.arn, incident_relationships)
+        self.assertEqual(len(incident_relationships[self.incident.arn].keys()), 0)
+
+        # app branch - 1 layer deep 
+        app_relationships = {}
+        search_trust_tree(tree, self.app.arn, app_relationships)
+        assert self.test.arn in app_relationships[self.app.arn].keys()
+
+        # jenkins branch - 2 layers deep
+        jenkins_relationships = {}
+        search_trust_tree(tree, self.jenkins.arn, jenkins_relationships)
+        assert self.jenkins_controller.arn in jenkins_relationships[self.jenkins.arn].keys()
+        assert self.test.arn in jenkins_relationships[self.jenkins.arn][self.jenkins_controller.arn].keys()
+
+    def test_get_trust_tree(self): 
         trusted_roles = [
-            self.jenkins_role,
-            self.incident_role
+            self.jenkins,
+            self.incident,
+            self.app,
         ]
 
         evaluator = IAMPolicyEvaluator(self.test_params)
+        evaluator.trust_tree = Node(evaluator.arn, evaluator.identity.name)
         evaluator.build_trust_tree(trusted_roles, self.assume_role_policies, evaluator.trust_tree)
 
         examined_role = evaluator.arn
         tree = evaluator.trust_tree
 
-        jenkins_relationships = search_trust_tree(tree, self.jenkins_role.arn)
-        print(jenkins_relationships)
-        assert self.jenkins_controller_role.arn in jenkins_relationships
+        results = {}
+        evaluator.get_trust_tree(tree, results)
+       
+        first_branch = list(results[self.dev.arn].keys())
+        expected_first_branch = [self.app.arn, self.incident.arn, self.jenkins.arn]
+        first_branch.sort()
 
-        incident_relationships = search_trust_tree(tree, self.incident_role.arn)
-        self.assertEqual(incident_relationships, None)
+        self.assertListEqual(first_branch, expected_first_branch)
 
-        jenkins_controller_relationships = search_trust_tree(tree, self.jenkins_controller_role.arn)
-        assert self.test_role.arn in jenkins_controller_relationships
+        second_branch = list(results[self.dev.arn][self.jenkins.arn].keys())
+        expected_second_branch = [self.jenkins_controller.arn]
+
+        self.assertListEqual(second_branch, expected_second_branch)
+
+        third_branch = list(results[self.dev.arn][self.jenkins.arn][self.jenkins_controller.arn].keys())
+        expected_third_branch = [self.test.arn]
+
+        self.assertListEqual(third_branch, expected_third_branch)
+
